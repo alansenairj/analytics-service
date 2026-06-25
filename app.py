@@ -117,6 +117,8 @@ def sqs_worker_loop():
 # --- Servidor Flask (Apenas para Health Check) ---
 
 app = Flask(__name__)
+# Flask 3.0 escapa caracteres não-ASCII por padrão (á → á). Desativado para respostas legíveis.
+app.json.ensure_ascii = False
 
 @app.route('/health')
 def health():
