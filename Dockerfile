@@ -12,7 +12,7 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-COPY app.py .
+COPY app.py telemetry.py ./
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8005
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8005", "--workers", "2"]

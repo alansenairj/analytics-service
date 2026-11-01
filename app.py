@@ -8,6 +8,9 @@ import logging
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 from flask import Flask, jsonify
+from opentelemetry import propagate, trace
+from opentelemetry.trace import SpanKind
+import telemetry
 from dotenv import load_dotenv
 
 # Configura o logging
@@ -25,6 +28,10 @@ DYNAMODB_TABLE_NAME = os.getenv("AWS_DYNAMODB_TABLE")
 if not all([AWS_REGION, SQS_QUEUE_URL, DYNAMODB_TABLE_NAME]):
     log.critical("Erro: AWS_REGION, AWS_SQS_URL, e AWS_DYNAMODB_TABLE devem ser definidos.")
     sys.exit(1)
+
+app = Flask(__name__)
+telemetry.setup(app, "analytics-service")
+tracer = trace.get_tracer("analytics-service")
 
 # --- Clientes Boto3 ---
 # Criamos a sessão uma vez
@@ -44,6 +51,15 @@ except Exception as e:
 # --- SQS Worker ---
 
 def process_message(message):
+    """ Continua o trace do evaluation-service (traceparent no atributo da mensagem) """
+    attrs = message.get('MessageAttributes', {})
+    carrier = {k: v['StringValue'] for k, v in attrs.items() if 'StringValue' in v}
+    with tracer.start_as_current_span(
+        "sqs.process", context=propagate.extract(carrier), kind=SpanKind.CONSUMER
+    ):
+        _process_message(message)
+
+def _process_message(message):
     """ Processa uma única mensagem SQS e a insere no DynamoDB """
     try:
         log.info(f"Processando mensagem ID: {message['MessageId']}")
@@ -94,6 +110,7 @@ def sqs_worker_loop():
             response = sqs_client.receive_message(
                 QueueUrl=SQS_QUEUE_URL,
                 MaxNumberOfMessages=10,  # Processa em lotes de até 10
+                MessageAttributeNames=['All'],
                 WaitTimeSeconds=20
             )
             
@@ -116,7 +133,6 @@ def sqs_worker_loop():
 
 # --- Servidor Flask (Apenas para Health Check) ---
 
-app = Flask(__name__)
 # Flask 3.0 escapa caracteres não-ASCII por padrão (á → á). Desativado para respostas legíveis.
 app.json.ensure_ascii = False
 
